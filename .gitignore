@@ -1,0 +1,32 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+
+# Secrets and local settings
+.env
+
+# Data (rebuilt by the pipeline, never committed)
+data/
+
+# Spark
+spark-warehouse/
+metastore_db/
+derby.log
+
+# dbt
+dbt/target/
+dbt/logs/
+dbt/dbt_packages/
+dbt/.user.yml
+logs/
+
+# Editors
+.vscode/
+.idea/
+
+# pdf
+*.pdf

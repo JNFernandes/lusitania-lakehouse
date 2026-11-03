@@ -1,0 +1,62 @@
+# The project definition: what it is, what it needs, and the settings of its tools.
+# Replaces requirements.txt. Install for development (from this folder):
+#     pip install -e ".[dev,dbt]"
+# "-e" = editable: the package points to src/, so code changes apply without reinstalling.
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "lusitania-lakehouse"
+version = "0.2.0"
+description = "Medallion lakehouse for a fictional retailer: PySpark + Delta Lake + dbt, local and on Databricks"
+readme = "README.md"
+requires-python = ">=3.10,<3.13"
+dependencies = [
+    "pyspark>=3.5.3,<3.6",
+    "delta-spark>=3.3,<3.4",
+    "pymongo>=4.6",
+    "pyodbc>=5.0",
+    "requests>=2.31",
+    "python-dotenv>=1.0",
+    "duckdb>=1.1",
+]
+
+[project.optional-dependencies]
+dbt = ["dbt-core>=1.9", "dbt-duckdb>=1.9", "dbt-databricks>=1.9"]
+dev = ["pytest>=8", "ruff>=0.6"]
+
+[project.scripts]
+lusitania = "lusitania.cli:main"          # creates the `lusitania` command
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+lusitania = ["log4j2.properties"]
+
+# --- pytest ----------------------------------------------------------------------
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"                           # summary of skipped / failed tests at the end
+markers = ["delta: needs Delta Lake (skipped automatically when it is not available)"]
+filterwarnings = ["ignore::DeprecationWarning", "ignore::FutureWarning"]
+
+# --- ruff (linter + import sorter) ---------------------------------------------------
+[tool.ruff]
+line-length = 120
+target-version = "py310"
+extend-exclude = ["databricks", "dbt"]
+
+[tool.ruff.lint]
+select = [
+    "E", "W",   # pycodestyle: style errors and warnings
+    "F",        # pyflakes: unused imports, undefined names
+    "I",        # isort: imports sorted and grouped
+    "B",        # bugbear: likely bugs
+    "UP",       # pyupgrade: modern Python syntax
+]
+
+[tool.ruff.lint.isort]
+known-first-party = ["lusitania"]

@@ -1,0 +1,22 @@
+# The dbt project: its name, where things are, and default settings per folder.
+name: lusitania
+version: "1.0.0"
+config-version: 2
+
+profile: lusitania           # which connection to use (defined in profiles.yml)
+
+model-paths: ["models"]
+snapshot-paths: ["snapshots"]
+test-paths: ["tests"]
+macro-paths: ["macros"]
+
+clean-targets: ["target", "dbt_packages"]
+
+models:
+  lusitania:
+    staging:
+      +materialized: view     # thin layer over silver: renamed/typed columns, no data copied
+      +schema: staging
+    marts:
+      +materialized: table    # gold: dimensions and facts are stored as real tables
+      +schema: gold

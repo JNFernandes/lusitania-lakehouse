@@ -1,0 +1,109 @@
+# Tests and documentation for the gold models.
+version: 2
+
+models:
+  - name: dim_date
+    description: "Calendar 2020-2030, one row per day, plus an Unknown row (date_key -1)."
+    columns:
+      - name: date_key
+        description: "Date as an integer, e.g. 20261103."
+        tests: [unique, not_null]
+      - name: full_date
+        tests: [unique, not_null]
+
+  - name: dim_store
+    description: "Stores (SCD1), the web shop, and an Unknown row (store_key '-1')."
+    columns:
+      - name: store_key
+        description: "Surrogate key: md5 hash of store_code."
+        tests: [unique, not_null]
+      - name: store_code
+        description: "Business key."
+        tests: [unique, not_null]
+      - name: store_type
+        tests:
+          - accepted_values:
+              arguments:
+                values: ['Mall', 'Street', 'Online', 'Web', 'Unknown']
+
+  - name: dim_customer
+    description: "Customers, SCD Type 2: one row per version. City, district and segment keep history; names and contact details are always current."
+    columns:
+      - name: customer_key
+        description: "Surrogate key: md5 of customer_code and the version's start. One per version."
+        tests: [unique, not_null]
+      - name: customer_code
+        description: "Business key. Repeats once per version."
+        tests: [not_null]
+      - name: valid_from
+        tests: [not_null]
+      - name: valid_to
+        tests: [not_null]
+
+  - name: dim_product
+    description: "Products, SCD Type 2 on category and list price. Snowflake: links to dim_category."
+    columns:
+      - name: product_key
+        tests: [unique, not_null]
+      - name: sku
+        tests: [not_null]
+      - name: category_key
+        tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_category')
+                field: category_key
+
+  - name: dim_category
+    description: "Product categories. Snowflake: links to dim_department."
+    columns:
+      - name: category_key
+        tests: [unique, not_null]
+      - name: department_key
+        tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_department')
+                field: department_key
+
+  - name: dim_department
+    description: "Product departments, the top of the product snowflake."
+    columns:
+      - name: department_key
+        tests: [unique, not_null]
+
+  - name: fact_sales
+    description: "Sales, one row per order line, in-store (SQL Server) and web (MongoDB), in EUR. Customer and product keys point to the version valid at order time."
+    columns:
+      - name: sales_line_key
+        description: "Surrogate key: md5 of source system, order number and line number."
+        tests: [unique, not_null]
+      - name: date_key
+        tests:
+          - not_null
+          - relationships:
+              arguments: {to: ref('dim_date'), field: date_key}
+      - name: customer_key
+        tests:
+          - not_null
+          - relationships:
+              arguments: {to: ref('dim_customer'), field: customer_key}
+      - name: product_key
+        tests:
+          - not_null
+          - relationships:
+              arguments: {to: ref('dim_product'), field: product_key}
+      - name: store_key
+        tests:
+          - not_null
+          - relationships:
+              arguments: {to: ref('dim_store'), field: store_key}
+      - name: channel
+        tests:
+          - accepted_values:
+              arguments:
+                values: ['Store', 'Online', 'Web']
+      - name: net_amount_eur
+        tests: [not_null]

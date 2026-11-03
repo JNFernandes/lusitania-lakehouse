@@ -1,0 +1,22 @@
+# How dbt connects to its database. Two TARGETS, one project:
+#   dbt build                      → local     (DuckDB file on this laptop)
+#   dbt build --target databricks  → databricks (Unity Catalog, serverless SQL warehouse)
+# The models are the same; only the connection changes.
+lusitania:
+  target: local
+  outputs:
+    local:
+      type: duckdb
+      path: ../data/lusitania_gold.duckdb    # the gold database file (inside data/, so not committed)
+      extensions:
+        - delta                              # lets DuckDB read the silver Delta tables
+      threads: 4
+
+    databricks:
+      type: databricks
+      catalog: "{{ env_var('DATABRICKS_CATALOG', 'lusitania') }}"
+      schema: gold                           # default schema; models choose theirs (staging, snapshots, gold)
+      host: "{{ env_var('DATABRICKS_HOST') }}"            # e.g. dbc-1234abcd-5678.cloud.databricks.com
+      http_path: "{{ env_var('DATABRICKS_HTTP_PATH') }}"  # e.g. /sql/1.0/warehouses/abc123def456
+      token: "{{ env_var('DATABRICKS_TOKEN') }}"          # personal access token — never written in a file
+      threads: 4

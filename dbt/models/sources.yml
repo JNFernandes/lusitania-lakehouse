@@ -1,0 +1,62 @@
+# SOURCES: the tables dbt reads but does not build — here, the silver layer.
+#
+# Each source points to a silver Delta table folder. In a model you write
+#   {{ source('silver', 'customers') }}
+# and dbt replaces it with  delta_scan('../data/silver/customers')  on the laptop,
+# or with  lusitania.silver.customers  on Databricks.
+#
+# Tests on sources check the input BEFORE any model is built:
+# if silver is broken, gold is never built on top of it.
+version: 2
+
+sources:
+  - name: silver
+    description: "Clean, current-state tables built by the PySpark silver layer."
+    # On Databricks: the Unity Catalog tables  <catalog>.silver.<table>
+    database: "{{ target.catalog if target.type == 'databricks' else target.database }}"
+    schema: silver
+    # On the laptop (DuckDB): the silver Delta folders. Ignored by Databricks.
+    config:
+      meta:
+        external_location: "delta_scan('../data/silver/{name}')"
+    tables:
+      - name: customers
+        description: "One row per customer (current version)."
+        columns:
+          - name: customer_code
+            tests: [unique, not_null]
+
+      - name: products
+        description: "One row per product, with category and department names."
+        columns:
+          - name: sku
+            tests: [unique, not_null]
+
+      - name: stores
+        description: "One row per store."
+        columns:
+          - name: store_code
+            tests: [unique, not_null]
+
+      - name: exchange_rates
+        description: "One row per day and currency (weekends filled)."
+
+      - name: store_sales_lines
+        description: "In-store sales, one row per order line, in EUR."
+        columns:
+          - name: sku
+            tests:
+              - relationships:
+                  arguments:
+                    to: source('silver', 'products')
+                    field: sku
+
+      - name: online_sales_lines
+        description: "Web orders from MongoDB, one row per order line, converted to EUR."
+        columns:
+          - name: sku
+            tests:
+              - relationships:
+                  arguments:
+                    to: source('silver', 'products')
+                    field: sku
