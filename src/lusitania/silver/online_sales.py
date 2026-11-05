@@ -12,6 +12,14 @@ Where the raw, messy JSON becomes clean rows. Six fixes, in order:
 
 Grain: ONE ROW PER ORDER LINE, same as silver/store_sales_lines, so gold can
 put both channels in one fact table.
+
+The steps are separate functions so the STREAMING consumer (Project 3) reuses them:
+
+    batch  (clean):   parse → dedupe_latest (row_number)              → explode_lines → to_eur
+    stream (Kafka):   parse → dropDuplicatesWithinWatermark (streaming) → explode_lines → to_eur
+
+Only deduplication differs: row_number must see ALL rows to rank them, which a stream
+never has, so Spark refuses it on a streaming DataFrame.
 """
 from pyspark.sql import Column, DataFrame, Window
 from pyspark.sql import functions as F
@@ -52,6 +60,9 @@ ORDER_SCHEMA = T.StructType([
         T.StructField("qty", T.IntegerType()),
         T.StructField("unitPrice", T.DoubleType()),
     ]))),
+    # schema version 2 of the LIVE events (Project 3): both optional, NULL in the MongoDB history
+    T.StructField("schemaVersion", T.IntegerType()),
+    T.StructField("couponCode", T.StringType()),
 ])
 
 DATE_FORMATS = [
@@ -70,25 +81,25 @@ def parse_order_date(col: Column) -> Column:
     return F.coalesce(*[F.try_to_timestamp(text, F.lit(fmt)) for fmt in DATE_FORMATS])
 
 
-def clean(bronze: DataFrame, rates: DataFrame) -> DataFrame:
-    # 1. PARSE
-    orders = (bronze.select(F.from_json("raw_json", ORDER_SCHEMA).alias("o"), "_batch_id")
-                    .select("o.*", "_batch_id"))
+def parse(raw: DataFrame) -> DataFrame:
+    """1-2. PARSE + DATES: the `raw_json` text → one row per ORDER, typed, with order_ts and
+    created_ts. Every other column of the input is kept (e.g. _batch_id, or Kafka's offset)."""
+    return (raw.withColumn("_doc", F.from_json("raw_json", ORDER_SCHEMA))
+               .select("*", "_doc.*").drop("_doc")
+               .withColumn("order_ts", parse_order_date(F.col("orderDate")))
+               .withColumn("created_ts", F.to_timestamp(F.col("createdAt.`$date`"))))
 
-    # 2. DATES
-    orders = (orders
-        .withColumn("order_ts", parse_order_date(F.col("orderDate")))
-        .withColumn("created_ts", F.to_timestamp(F.col("createdAt.`$date`"))))
 
-    # 3. DEDUPLICATE: keep the most recently stored version of each order
+def dedupe_latest(orders: DataFrame) -> DataFrame:
+    """3. DEDUPLICATE (batch only): keep the most recently stored version of each order."""
     latest_first = Window.partitionBy("orderNumber").orderBy(F.col("created_ts").desc())
-    orders = orders.withColumn("_rn", F.row_number().over(latest_first)).filter("_rn = 1").drop("_rn")
+    return orders.withColumn("_rn", F.row_number().over(latest_first)).filter("_rn = 1").drop("_rn")
 
-    # 4. EXPLODE: one row per item; the order's fields are repeated on each row
+
+def explode_lines(orders: DataFrame) -> DataFrame:
+    """4-5. EXPLODE + STANDARDISE: one row per item, clean codes and names. Needs _batch_id."""
     lines = orders.select("*", F.explode("items").alias("item")).drop("items")
-
-    # 5. STANDARDISE
-    lines = lines.select(
+    return lines.select(
         F.upper(F.trim("orderNumber")).alias("order_number"),
         F.col("item.line").alias("line_number"),
         "order_ts",
@@ -110,7 +121,9 @@ def clean(bronze: DataFrame, rates: DataFrame) -> DataFrame:
         F.col("_batch_id").alias("bronze_batch_id"),
     )
 
-    # 6. CONVERT TO EUR: join the rate of the order's own date and currency (EUR = 1)
+
+def to_eur(lines: DataFrame, rates: DataFrame, source_system: str = "mongodb") -> DataFrame:
+    """6. CONVERT TO EUR: join the rate of the order's own date and currency (EUR = 1)."""
     r = rates.select(F.col("rate_date").alias("order_date"), "currency", F.col("rate").alias("fx_rate"))
     lines = (lines.join(r, ["order_date", "currency"], "left")
                   .withColumn("fx_rate", F.when(F.col("currency") == "EUR", F.lit(1))
@@ -123,10 +136,16 @@ def clean(bronze: DataFrame, rates: DataFrame) -> DataFrame:
         "sku", "product_name", "quantity", "currency", "unit_price_local", "fx_rate",
         unit_eur.cast("decimal(10,2)").alias("unit_price_eur"),
         F.round(unit_eur * F.col("quantity"), 2).cast("decimal(12,2)").alias("net_amount_eur"),
-        F.lit("mongodb").alias("source_system"),
+        F.lit(source_system).alias("source_system"),
         "source_modified_at", "bronze_batch_id",
         F.current_timestamp().alias("silver_updated_at"),
     )
+
+
+def clean(bronze: DataFrame, rates: DataFrame) -> DataFrame:
+    """The batch silver table: all six steps, in order."""
+    raw = bronze.select("raw_json", "_batch_id")
+    return to_eur(explode_lines(dedupe_latest(parse(raw))), rates)
 
 
 def build(lake: Lakehouse) -> None:
