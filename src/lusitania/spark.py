@@ -9,6 +9,8 @@ It includes the fixes found while setting up Spark on Windows:
   - Delta Lake enabled (transactions, MERGE, time travel)
   - quieter logs (log4j2.properties next to this file)
 """
+from __future__ import annotations
+
 import os
 import sys
 from pathlib import Path
@@ -23,7 +25,10 @@ from pyspark.sql import SparkSession  # noqa: E402
 _LOG_CONFIG = (Path(__file__).resolve().parent / "log4j2.properties").as_uri()
 
 
-def get_spark(app_name: str = "lusitania", cores: str = "*") -> SparkSession:
+def get_spark(app_name: str = "lusitania", cores: str = "*",
+              extra_packages: list[str] | None = None) -> SparkSession:
+    """extra_packages: more Maven packages besides Delta, e.g. the Kafka connector
+    ("org.apache.spark:spark-sql-kafka-0-10_2.12:<spark version>") for the streaming consumer."""
     builder = (
         SparkSession.builder.appName(app_name)
         .master(f"local[{cores}]")                         # run locally on this many CPU cores
@@ -35,6 +40,6 @@ def get_spark(app_name: str = "lusitania", cores: str = "*") -> SparkSession:
         .config("spark.ui.showConsoleProgress", "false")   # no progress bars mixed with the logs
         .config("spark.driver.extraJavaOptions", f"-Dlog4j2.configurationFile={_LOG_CONFIG}")
     )
-    spark = configure_spark_with_delta_pip(builder).getOrCreate()
+    spark = configure_spark_with_delta_pip(builder, extra_packages=extra_packages or []).getOrCreate()
     spark.sparkContext.setLogLevel("WARN")
     return spark
