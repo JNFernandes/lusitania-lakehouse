@@ -23,6 +23,7 @@ from pyspark.sql import DataFrame, SparkSession
 from pyspark.sql import types as T
 
 from lusitania import config
+from lusitania.bronze.convert import rows_as_utc
 
 SQL_TABLES = [
     "product.Department",
@@ -70,7 +71,8 @@ def read_sqlserver(spark: SparkSession) -> list[Extract]:
                 T.StructField(col[0], spark_type(col[1], col[4], col[5]), True)
                 for col in cur.description
             ])
-            df = spark.createDataFrame([tuple(r) for r in cur.fetchall()], schema)
+            # rows_as_utc: same timestamps on every computer (see convert.py)
+            df = spark.createDataFrame(rows_as_utc(cur.fetchall()), schema)
             extracts.append(Extract(
                 table="sqlserver/" + table.replace(".", "_").lower(),
                 df=df,
