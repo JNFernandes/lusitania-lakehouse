@@ -21,13 +21,21 @@ if load_dotenv is not None:
 SQL_SERVER = os.getenv("SQL_SERVER", "localhost")
 SQL_DRIVER = os.getenv("SQL_DRIVER", "ODBC Driver 18 for SQL Server")
 OLTP_DATABASE = os.getenv("OLTP_DATABASE", "LusitaniaOLTP")
+# Optional SQL login. Empty → Windows authentication (the laptop). Set → SQL authentication,
+# needed by programs that are not "you on Windows", e.g. Airflow in a Linux container.
+SQL_USER = os.getenv("SQL_USER", "")
+SQL_PASSWORD = os.getenv("SQL_PASSWORD", "")
 
 
 def sql_connection_string(database: str = OLTP_DATABASE) -> str:
-    """Windows authentication, same as SSMS. TrustServerCertificate for the local self-signed cert."""
+    """ODBC connection string. TrustServerCertificate accepts the local self-signed certificate."""
+    if SQL_USER:
+        auth = f"UID={SQL_USER};PWD={SQL_PASSWORD};"          # SQL login (e.g. lusitania_etl)
+    else:
+        auth = "Trusted_Connection=yes;"                      # Windows login, same as SSMS
     return (
         f"DRIVER={{{SQL_DRIVER}}};SERVER={SQL_SERVER};DATABASE={database};"
-        "Trusted_Connection=yes;TrustServerCertificate=yes;"
+        f"{auth}TrustServerCertificate=yes;"
     )
 
 
